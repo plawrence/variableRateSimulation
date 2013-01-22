@@ -73,11 +73,13 @@ image(x,y,bins)
 
 #Find areas in each bin that are 3 cells in height, then randomly apply 4 treatments
 
-#function to search individual columns
+#function to search individual columns for areas that match a particular bin and are of sufficient size
 findTreats = function(colvec,bin,binsize){
   binvec = match(colvec,bin)
   matchvec = vector(length=length(binvec))
   count = 0
+  
+  #For each column, count the numbers of consecutive within-bin cells
   for (i in 1:length(binvec)){
     if (!is.na(binvec[i])){
       count =count+1
@@ -86,13 +88,16 @@ findTreats = function(colvec,bin,binsize){
       count = 0
       matchvec[i] = 0
     }
+    #Reset when the desired binsize has been met
     if (count==binsize){
       count = 0
     }
   }
   locationvec = which(matchvec==binsize)
+  #Set the corresponding locations to the number of the bin
   treatmentvec = rep(0,length(binvec))
   treatmentvec[locationvec]=bin
+  #Make sure that the binsize-vector cells are all coded
   binsize = binsize - 1
   treatmentvec[locationvec-binsize] = bin
   while (binsize >0){
@@ -102,7 +107,8 @@ findTreats = function(colvec,bin,binsize){
   return (treatmentvec)    
 }
 
-applyExperiment = function(dataset,bin,binsize,reps){
+#Function to apply the random experimental treatments to each of the bins - specify binsize, # of reps
+applyExperiment = function(dataset,bin,binsize,reps,numlevels){
   exptvec = matrix(0,ncol=fieldcol,nrow=fieldrow)
   for (i in 1:fieldcol){
     colvec = as.vector(dataset[,i])
@@ -111,27 +117,48 @@ applyExperiment = function(dataset,bin,binsize,reps){
   }
   exptlist = which(exptvec==bin)
   expt.out = vector()
-  for (i in 1:reps){
+  for (i in 1:(reps*numlevels)){
     surrounded = FALSE
     while (surrounded == FALSE){
       draw = sample(exptlist,1)
       if (((draw - 1) %in% exptlist & !((draw - 1) %in% expt.out)) & ((draw+1) %in% exptlist & !((draw+1) %in% expt.out))){
-        expt.out <- c(expt.out,draw-1,draw,draw+1)
+        expt.out <- c(expt.out,draw)
         surrounded = TRUE
       }
     }
   }
-  outmat <- matrix(0,nrow=fieldrow,ncol=fieldcol)
+  #Background level of 200 lbs applied
+  outmat <- matrix(200,nrow=fieldrow,ncol=fieldcol)
   for (i in 1:length(expt.out)){
-    outmat[expt.out[i]] = 1
+    outmat[expt.out[i]] = bin
   }
+  levelvec <- c(0,40,80,120)
+  outmat = applyTreatLevels(outmat,levelvec,reps)
   return (outmat)
 }
 
 par(mfrow=c(2,2))
 image(x,y,bins)
-image(x,y,applyExperiment(bins,3,3,10))
-image(x,y,applyExperiment(bins,2,3,10))
-image(x,y,applyExperiment(bins,1,3,10))
+image(x,y,applyExperiment(bins,3,3,4,4))
+image(x,y,applyExperiment(bins,2,3,4,4))
+image(x,y,applyExperiment(bins,1,3,4,4))
 
-exptlist = which(z==binnum)
+#Function to apply treatment levels - make sure the number of treat areas is divisible by the number of levels
+#Assuming a bin size of 3 for now
+applyTreatLevels <- function(inmat,levelvec,reps){
+  possiblelocs = which(inmat>0)
+  levrep <- rep(levelvec,reps)
+  treatsamplevec <- sample(possiblelocs)
+  count = 1
+  for (i in levrep){
+    treatloc = treatsamplevec[count]
+    inmat[treatloc] = i
+    inmat[treatloc-1] = i
+    inmat[treatloc+1] = i
+    count = count+ 1
+    #possiblelocs = possiblelocs[-which(possiblelocs==treatloc)]
+  }
+  return(inmat)
+}
+
+image(x,y,applyTreatLevels(,levelvec,4))
