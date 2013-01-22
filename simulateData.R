@@ -86,6 +86,9 @@ findTreats = function(colvec,bin,binsize){
       count = 0
       matchvec[i] = 0
     }
+    if (count==binsize){
+      count = 0
+    }
   }
   locationvec = which(matchvec==binsize)
   treatmentvec = rep(0,length(binvec))
@@ -99,15 +102,36 @@ findTreats = function(colvec,bin,binsize){
   return (treatmentvec)    
 }
 
-applyExperiment = function(dataset,bin,binsize,exprmnt.treatments){
+applyExperiment = function(dataset,bin,binsize,reps){
   exptvec = matrix(0,ncol=fieldcol,nrow=fieldrow)
   for (i in 1:fieldcol){
     colvec = as.vector(dataset[,i])
     treatvec = findTreats(colvec,bin,binsize)
     exptvec[,i] = treatvec
   }
-  return (exptvec)
+  exptlist = which(exptvec==bin)
+  expt.out = vector()
+  for (i in 1:reps){
+    surrounded = FALSE
+    while (surrounded == FALSE){
+      draw = sample(exptlist,1)
+      if (((draw - 1) %in% exptlist & !((draw - 1) %in% expt.out)) & ((draw+1) %in% exptlist & !((draw+1) %in% expt.out))){
+        expt.out <- c(expt.out,draw-1,draw,draw+1)
+        surrounded = TRUE
+      }
+    }
+  }
+  outmat <- matrix(0,nrow=fieldrow,ncol=fieldcol)
+  for (i in 1:length(expt.out)){
+    outmat[expt.out[i]] = 1
+  }
+  return (outmat)
 }
 
+par(mfrow=c(2,2))
 image(x,y,bins)
-image(x,y,applyExperiment(bins,3,3,1))
+image(x,y,applyExperiment(bins,3,3,10))
+image(x,y,applyExperiment(bins,2,3,10))
+image(x,y,applyExperiment(bins,1,3,10))
+
+exptlist = which(z==binnum)
