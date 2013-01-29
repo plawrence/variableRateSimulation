@@ -247,8 +247,8 @@ newYieldCalc <- function(bins,fertmat,soilN,precipYr){
 ##Continue for successive rounds - soil N is calculated from the last year's yield N removal
 roundFun = function(yield,soilN,fieldcol,fieldrow){
   bins = calcBins(fieldcol,fieldrow,yield)
-  image(x,y,soilN,main=as.character(precipYr))
-  image(x,y,bins)
+  image(x,y,soilN,main="Soil N - Previous Year")
+  image(x,y,bins,main="Bins based on previous year yld")
   
   #Calc new soil N for new round
   soilN = calcSoilN(soilN,yield,nremcoef)
@@ -257,13 +257,13 @@ roundFun = function(yield,soilN,fieldcol,fieldrow){
   bin2treat = applyExperiment(bins,2,3,4,4)
   bin3treat = applyExperiment(bins,3,3,4,4)
   fertcollection = applymin(bin1treat,bin2treat,bin3treat)
-  image(x,y,fertcollection)
+  image(x,y,fertcollection,main="Expt based on previous year yld")
   precipYr = rnorm(1,7,2)
   precipYr
   outyld = newYieldCalc(bins,fertcollection,soilN,precipYr)
-  image(x,y,outyld,main=as.character(precipYr))
+  image(x,y,outyld,main=paste("Precip = ",as.character(round(precipYr,1)),"; Current Yld"))
   #hist(outyld)
-  plot(outyld~fertcollection,col=bins)
+  plot(outyld~fertcollection,col=bins,main="Yld Response")
   outlist = list(outyld,soilN)
   return(outlist)
 }
