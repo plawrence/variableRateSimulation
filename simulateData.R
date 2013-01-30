@@ -21,6 +21,11 @@ range <- 40
 fieldcol=40
 fieldrow=40
 
+##Economic Parameters
+Nprice = .55*.46
+fixedcosts = 60 #per acre
+wheatprice = 7 #dollars/bushel
+
 ## parameters of the covariance functions
 step <- 1 ## nicer, but also time consuming if step <- 0.1
 x <- seq(0, fieldcol-1, step)
@@ -264,7 +269,7 @@ roundFun = function(yield,soilN,fieldcol,fieldrow){
   image(x,y,outyld,main=paste("Precip = ",as.character(round(precipYr,1)),"; Current Yld"))
   #hist(outyld)
   plot(outyld~fertcollection,col=bins,main="Yld Response")
-  outlist = list(outyld,soilN)
+  outlist = list(outyld,soilN,fertcollection,precipYr)
   return(outlist)
 }
 
@@ -275,6 +280,77 @@ for (i in 1:numRounds){
   outlist = roundFun(yield,soilN,fieldcol,fieldrow)
   yield = outlist[[1]]
   soilN = outlist[[2]]
+  fertcollection = outlist[[3]]
+  precipYr = outlist[[4]]
 }
 
 ##Next up, run regressions on each of the bin areas from the experiment-year, then apply N accordingly
+bins = calcBins(fieldcol,fieldrow,yield)
+
+#Partition the yield by bin
+vectorizeYieldBins <- function(bins,yield,fert,soilTex){
+  threevectoryldlist <- list(vector(),vector(),vector())
+  threevectorfertlist <- list(vector(),vector(),vector())
+  soiltexlist <- list(vector(),vector(),vector())
+  #Go through each element in matrix, match to number of list in three vector list, transfer yield's
+  #corresponding element to vector
+  #Go through each element in yield matrix, match corresponding element of bin matrix to list number
+  for (i in 1:length(bins)){
+    threevectoryldlist[[bins[i]]]=c(threevectoryldlist[[bins[i]]],yield[i])
+    threevectorfertlist[[bins[i]]]=c(threevectorfertlist[[bins[i]]],fert[i])
+    soiltexlist[[bins[i]]]=c(soiltexlist[[bins[i]]],soilTex[i])
+  }
+  yldfertsoil = list(threevectoryldlist,threevectorfertlist,soiltexlist)
+  return(yldfertsoil)
+}
+
+##Run the regressions
+regressFertYld <- function(yldfert){
+  reg1 = lm(yldfert[[1]][[1]]~yldfert[[2]][[1]]+I(yldfert[[2]][[1]]^2)+yldfert[[3]][[1]])
+  reg2 = lm(yldfert[[1]][[2]]~yldfert[[2]][[2]]+I(yldfert[[2]][[2]]^2)+yldfert[[3]][[2]])
+  reg3 = lm(yldfert[[1]][[3]]~yldfert[[2]][[3]]+I(yldfert[[2]][[3]]^2)+yldfert[[3]][[3]])
+  reglist = list(reg1,reg2,reg3)
+  return(reglist)
+}
+
+##
+yldfertsoil = vectorizeYieldBins(bins,yield,fertcollection,soilTex)
+reglist = regressFertYld(yldfertsoil)
+
+#Try a Conditional Autoregressive model on all the data points - why would we have separate equations for each bin
+#(are they stable?)
+library(spdep)
+
+#Create the adjacency matrix
+neighlist = cell2nb(fieldrow,fieldrow,type="queen",torus=F)
+adj = unlist(neighlist)
+num = card(neighlist)
+sumNumNeigh = sum(length(adj))
+listw=nb2listw(neighlist,style="U")
+
+library(spam)
+z <- spautolm(as.vector(yield)~as.vector(fertcollection)+I(as.vector(fertcollection)^2)+as.vector(soilTex),listw=listw,family="CAR",verbose=T)
+z2 <- spautolm(as.vector(yield)~as.vector(fertcollection)+as.vector(soilTex),listw=listw,family="CAR",verbose=T)
+
+
+##Just run the optimization with the linear regression results
+NR.func <- function(N){
+  intercept = regression$coefficients[1]
+  b1 = regression$coefficients[2]
+  b2 = regression$coefficients[3]
+  yield = intercept+b1*N+b2*(N^2)
+  NR = wheatprice*yield - Nprice*N - fixedcosts
+  return(-NR)
+}
+
+##For each bin, optimize the N, then apply it the next year
+binvec = unique(as.vector(bins))
+optimizeN <- function(binvec,reglist){
+  optimN = vector(length=3)
+  for (bin in binvec){
+    regression = reglist[[bin]]
+    Nout = optim(100,NR.func,method="L-BFGS-B",lower=0,upper=400)
+    optimN[bin] = Nout$par
+  }
+  return(optimN)
+}
