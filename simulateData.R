@@ -56,7 +56,7 @@ bin2beta1 = .36
 bin3beta1 = .31
 bin1beta2 = -.00051
 bin2beta2 = -.00113
-bin3beta3 = -.0003
+bin3beta2 = -.0003
 bincoefmat = matrix(0,nrow=3,ncol=3)
 bincoefmat[,1] = c(bin1beta0,bin1beta1,bin1beta2)
 bincoefmat[,2] = c(bin2beta0,bin2beta1,bin2beta2)
@@ -229,7 +229,7 @@ cellYieldCalc <- function(row,col,bins,Nmat,soilTexWat){
   cellN = Nmat[cell[1],cell[2]]
   bincoef = bincoefmat[,cellbin]
   soilTW = soilTexWat[cell[1],cell[2]]
-  outyld = bincoef[1]+bincoef[2]*cellN+bincoef[3]*(cellN^2)+.2*soilTW
+  outyld = bincoef[1]+bincoef[2]*cellN+bincoef[3]*(cellN^2)+.2*soilTW+rnorm(1,mean=0,sd=2)
   return(outyld)
 }
 
@@ -237,15 +237,8 @@ newYieldCalc <- function(bins,fertmat,soilN,precipYr){
   outmat = matrix(0,nrow=fieldrow,ncol=fieldcol)
   Nmat = fertmat+soilN
   soilTexWat = precipYr*soilTex
-  #Didn't want to loop but have to since we're dealing with a function applied to multiple matrices
-  for (row in 1:nrow(outmat)){
-    for (col in 1:ncol(outmat)){
-      outmat[row,col] = cellYieldCalc(row,col,bins,Nmat,soilTexWat)+rnorm(1,mean=0,sd=2)
-    }
-  }
-  #outmat=outer(1:nrow(outmat),1:ncol(outmat),FUN=function(r,c) cellYieldCalc(r,c,bins,Nmat))
-  #outmat=outer(1:nrow(outmat),1:ncol(outmat),FUN=function(r,c) tmpfun(r,c,bins[r,c]))
-  #outmat = apply(outmat,c(1,2),function(x) tmpfun(x)#cellYieldCalc(c(r,c),bins,Nmat))
+  outmat = mapply(function(r,c) cellYieldCalc(r,c,bins,Nmat,soilTexWat),row(outmat),col(outmat))
+  outmat = matrix(outmat,ncol=fieldcol,nrow=fieldrow)
   return(outmat)
 }
 
@@ -264,7 +257,6 @@ roundFun = function(yield,soilN,fieldcol,fieldrow){
   fertcollection = applymin(bin1treat,bin2treat,bin3treat)
   image(x,y,fertcollection,main="Expt based on previous year yld")
   precipYr = rnorm(1,7,2)
-  precipYr
   outyld = newYieldCalc(bins,fertcollection,soilN,precipYr)
   image(x,y,outyld,main=paste("Precip = ",as.character(round(precipYr,1)),"; Current Yld"))
   #hist(outyld)
@@ -273,6 +265,7 @@ roundFun = function(yield,soilN,fieldcol,fieldrow){
   return(outlist)
 }
 
+######################################################RUN ME##########################################
 
 numRounds = 3  ##Number of experimental treatment-years to run
 par(mfrow=c(3,5))
@@ -284,8 +277,9 @@ for (i in 1:numRounds){
   precipYr = outlist[[4]]
 }
 
+#######################################################################################################
+
 ##Next up, run regressions on each of the bin areas from the experiment-year, then apply N accordingly
-bins = calcBins(fieldcol,fieldrow,yield)
 
 #Partition the yield by bin
 vectorizeYieldBins <- function(bins,yield,fert,soilTex){
@@ -314,8 +308,6 @@ regressFertYld <- function(yldfert){
 }
 
 ##
-yldfertsoil = vectorizeYieldBins(bins,yield,fertcollection,soilTex)
-reglist = regressFertYld(yldfertsoil)
 
 #Try a Conditional Autoregressive model on all the data points - why would we have separate equations for each bin
 #(are they stable?)
@@ -344,13 +336,51 @@ NR.func <- function(N){
 }
 
 ##For each bin, optimize the N, then apply it the next year
+regression = reglist[[1]]
 binvec = unique(as.vector(bins))
 optimizeN <- function(binvec,reglist){
   optimN = vector(length=3)
   for (bin in binvec){
-    regression = reglist[[bin]]
+    assign("regression",reglist[[bin]],envir=.GlobalEnv)
+    #regression = reglist[[bin]]
     Nout = optim(100,NR.func,method="L-BFGS-B",lower=0,upper=400)
     optimN[bin] = Nout$par
   }
   return(optimN)
+}
+
+######################################################RUN ME##########################################
+
+#Run the whole optimization set
+numRounds = 3
+
+par(mfrow=c(3,5))
+for (i in 1:numRounds){
+  #Calculate bins from experimental year
+  bins = calcBins(fieldcol,fieldrow,yield)
+  
+  #Display
+  image(x,y,soilN,main="Soil N - Previous Year")
+  image(x,y,bins,main="Bins based on previous year yld")
+  
+  #Partition the previous yield by the bins
+  yldfertsoil = vectorizeYieldBins(bins,yield,fertcollection,soilTex)
+  
+  #Run regressions for each bin
+  reglist = regressFertYld(yldfertsoil)
+
+  #Economically optimize the amount of N - NOTE: not spatial regressions
+  optimvec = optimizeN(binvec,reglist)
+  optimfert = matrix(0,nrow=fieldrow,ncol=fieldcol)
+  optimfert = matrix(mapply(function(r,c) optimvec[bins[r,c]],row(optimfert),col(optimfert)),ncol=fieldcol,nrow=fieldrow)
+  
+  #Calculate the new yield and soil N
+  precipYr = rnorm(1,7,2)
+  optimyld = newYieldCalc(bins,optimfert,soilN,precipYr)
+  soilN = calcSoilN(soilN,yield,nremcoef)
+  
+  #Display
+  image(x,y,optimfert,main="Optim based on regressions")
+  image(x,y,outyld,main=paste("Precip = ",as.character(round(precipYr,1)),"; Current Yld"))
+  plot(outyld~fertcollection,col=bins,main="Yld Response")
 }
